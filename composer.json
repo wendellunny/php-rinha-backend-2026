@@ -11,5 +11,7 @@
             "name": "wendellunny"
         }
     ],
-    "require": {}
+    "require": {
+        "halaxa/json-machine": "^1.2"
+    }
 }
