@@ -3,15 +3,14 @@
 namespace App\Kernel;
 
 class Router {
-
     private array $routes = [];
+
     public function __construct(
         private readonly string $method,
         private readonly string $path,
         private readonly array $queryParams,
         private readonly array $bodyParams
     ){}
-
 
     public function get(string $path, callable $handler): void
     {
