@@ -6,6 +6,11 @@ services:
       dockerfile: .docker/php/Dockerfile
     volumes:
       - .:/var/www/html
+    deploy:
+      resources:
+        limits:
+          cpus: '0.4'
+          memory: 150M
 
   instance2:
     container_name: php_instance2
@@ -14,6 +19,11 @@ services:
       dockerfile: .docker/php/Dockerfile
     volumes:
       - .:/var/www/html
+    deploy:
+      resources:
+        limits:
+          cpus: '0.4'
+          memory: 150M
     
 
   load-balancer:
@@ -26,3 +36,8 @@ services:
     depends_on:
       - instance1
       - instance2
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 50M
