@@ -28,6 +28,8 @@ define('MCC_RISK', [
     '5999' => 0.50
 ]);
 
+define('TRASHOLD_FRAUD', 0.6);
+
 $router =  new Router(
     $_SERVER['REQUEST_METHOD'],
     parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH),
@@ -69,8 +71,76 @@ $router->post('/fraud-score', function($request){
         merchant_avg_amount: limitValue($merchant['avg_amount'] / NORMALIZATION['max_merchant_avg_amount'])
     );
 
+    $vector = $vector->getVector();
 
-    echo json_encode(['approved' => false, 'fraud_score' => 1.0, 'vector' => $vector->getVector()]);
+    $centroids = json_decode(file_get_contents(__DIR__ . '/../resources/centroids.json'), true);
+    
+    $fiveShortestDistances = [];
+    $eucladianDistances = [];
+    foreach ($centroids as $key => $centroid) {
+        $sum = 0;
+        for ($i = 0; $i < count($centroid); $i++) {
+            $sub = $vector[$i] - $centroid[$i];
+            $squared = $sub * $sub;
+            $sum += $squared;
+        }
+        $eucladianDistances[$key] = sqrt($sum);
+        
+    }
+
+    asort($eucladianDistances);
+    $minCentroidDistance = array_slice($eucladianDistances, 0, 1, true);
+
+    $clusterId = array_keys($minCentroidDistance)[0];
+    $clusterFile = __DIR__ . '/../resources/buckets/' . $clusterId . '.ndjson';
+
+    $items = [];
+    $handle = fopen($clusterFile, 'r');
+    if ($handle) {
+        $key = 0;
+        while (($line = fgets($handle)) !== false) {
+            $item = json_decode($line, true);
+            $sum = 0;
+            for ($i = 0; $i < count($item['vector']); $i++) {
+                $sub = $vector[$i] - $item['vector'][$i];
+                $squared = $sub * $sub;
+                $sum += $squared;
+            }
+            $eucladianDistances[$key] = sqrt($sum);
+            $items[$key] = $item;
+            $key++;
+        }
+        fclose($handle);
+    } else {
+    }
+
+    asort($eucladianDistances);
+
+
+    $fiveShortestDistances = array_slice($eucladianDistances, 0, 5, true);
+
+    $newFiveShortestDistances = [];
+    foreach ($fiveShortestDistances as $key => $distance) {
+        $newFiveShortestDistances[$key] = [
+            'distance' => $distance,
+            'item' => $items[$key]
+        ];
+    }
+
+    $fiveShortestDistances = $newFiveShortestDistances;
+
+    $fraudCount = 0;
+    foreach ($fiveShortestDistances as $distanceInfo) {
+        if ($distanceInfo['item']['label'] === 'fraud') {
+            $fraudCount++;
+        }
+    }
+
+    $score = $fraudCount / 5;
+    $approved = $score < TRASHOLD_FRAUD;
+
+    echo json_encode(['approved' => $approved, 'fraud_score' => $score]);
+
 });
 
 $router->handleRequest();
@@ -97,4 +167,27 @@ function getBodyParams(): array
     }
 
     return $_POST;
+}
+
+function reorderArray(float $newValue, array &$data, int $currentIndex) {
+    $old = $data;
+    $prevIndex = $currentIndex - 1;
+
+    if ($prevIndex >= 0 &&$newValue < $old[$prevIndex]) {
+        reorderArray($newValue, $data, $prevIndex);
+        return;
+    }
+
+    for ($i = $currentIndex; $i < count($data); $i++) {
+
+        if($i > 5) {
+            break;
+        }
+
+        if($i )
+
+        $data[$i] = $old[$i - 1];
+    }
+
+    $data[$currentIndex] = $newValue;
 }

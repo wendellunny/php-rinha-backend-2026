@@ -8,7 +8,7 @@ require __DIR__ . '/../vendor/autoload.php';
 const VECTOR_DIMENSIONS = 14;
 const CLUSTER_QTY = 256;
 const ITERATIONS = 1;
-const BATCH_SIZE = 100000;
+const BATCH_SIZE = 1000000;
 
 function referenceIterator(string $file): iterable
 {
