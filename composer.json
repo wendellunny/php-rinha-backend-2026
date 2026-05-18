@@ -12,6 +12,7 @@
         }
     ],
     "require": {
-        "halaxa/json-machine": "^1.2"
+        "halaxa/json-machine": "^1.2",
+        "symfony/var-dumper": "^7.4"
     }
 }
