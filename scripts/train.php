@@ -5,28 +5,19 @@ use JsonMachine\JsonDecoder\ExtJsonDecoder;
 
 require __DIR__ . '/../vendor/autoload.php';
 
+ini_set('memory_limit', '150M');
+
 const VECTOR_DIMENSIONS = 14;
 const CLUSTER_QTY = 256;
 const ITERATIONS = 1;
-const BATCH_SIZE = 1000000;
+const BATCH_SIZE = false;
+const WRITE_BUCKETS_BUFFER_SIZE = 1000;
 
 function referenceIterator(string $file): iterable
 {
     return Items::fromFile($file, [
         'decoder' => new ExtJsonDecoder(true),
     ]);
-}
-
-function calculeDistanceSquared(array $vector1, array $vector2): float
-{
-    $sum = 0.0;
-    for ($i = 0; $i < count($vector1); $i++) {
-        $sub = $vector1[$i] - $vector2[$i];
-        $squared = $sub * $sub;
-        $sum += $squared;
-    }
-
-    return $sum;
 }
 
 function pickInitialCentroidsFromFile(string $referencesPath, int $qty): array
@@ -57,7 +48,12 @@ function findNearestCentroid(array $vector, array $centroids): int
     $bestDistance = PHP_FLOAT_MAX;
 
     foreach ($centroids as $index => $centroid) {
-        $distance = calculeDistanceSquared($vector, $centroid);
+        $distance = 0.0;
+        for ($i = 0; $i < VECTOR_DIMENSIONS; $i++) {
+            $sub = $vector[$i] - $centroid[$i];
+            $squared = $sub * $sub;
+            $distance += $squared;
+        }
 
         if ($distance < $bestDistance) {
             $bestDistance = $distance;
@@ -161,6 +157,7 @@ function buildBucketsFromFile(
 
     $total = 0;
 
+    $buffers = [];
     foreach(referenceIterator($referencesPath) as $key =>$reference) {
         if (BATCH_SIZE && $key >= BATCH_SIZE) {
             break;
@@ -173,15 +170,30 @@ function buildBucketsFromFile(
             'label' => $reference['label'],
         ], JSON_UNESCAPED_SLASHES);
 
-        fwrite($handles[$nearest], $line . PHP_EOL);
+        if (!isset($buffers[$nearest])) {
+            $buffers[$nearest] = [];
+        }
+
+        $buffers[$nearest][] = $line;
+
+        if (count($buffers[$nearest]) >= WRITE_BUCKETS_BUFFER_SIZE) {
+            fwrite($handles[$nearest], implode(PHP_EOL, $buffers[$nearest]) . PHP_EOL);
+            $buffers[$nearest] = [];
+        }
 
         $counts[$nearest]++;
         $total++;
 
-        if ($total % 1000 === 0) {
+        if ($total % 50000 === 0) {
             echo "Processados: {$total}" . PHP_EOL;
         }
     }
+
+    foreach ($buffers as $nearest => $buffer) {
+        if (count($buffer) > 0) {
+            fwrite($handles[$nearest], implode(PHP_EOL, $buffer) . PHP_EOL);
+        }
+    } 
 
     foreach ($handles as $handle) {
         fclose($handle);
