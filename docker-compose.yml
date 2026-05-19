@@ -1,12 +1,7 @@
 services:
-  instance1:
+  instance1: &instance
     container_name: php_instance1
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - ./public:/var/www/html/public
-      - ./src:/var/www/html/src
+    image: wendellunny/php-rinha-backend-2026:1.0
     deploy:
       resources:
         limits:
@@ -14,20 +9,9 @@ services:
           memory: 150M
 
   instance2:
+    <<: *instance
     container_name: php_instance2
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - ./public:/var/www/html/public
-      - ./src:/var/www/html/src
-    deploy:
-      resources:
-        limits:
-          cpus: '0.4'
-          memory: 150M
     
-
   load-balancer:
     container_name: nginx_load_balancer
     image: nginx:latest
