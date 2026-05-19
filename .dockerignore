@@ -1,0 +1,6 @@
+.git
+resources/buckets_index.json
+resources/centroids.json
+resources/references.json
+resources/buckets/*.ndjson
+vendor
