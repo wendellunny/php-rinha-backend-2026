@@ -12,8 +12,19 @@ RUN apk add --no-cache \
 RUN docker-php-ext-install \
     pdo_mysql \
     zip \
-    mbstring
+    mbstring \
+    pcntl
+
+    
 
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 
+COPY . /var/www/html
+
 WORKDIR /var/www/html
+
+RUN composer install --no-dev --optimize-autoloader
+
+RUN chown -R www-data:www-data /var/www/html
+
+RUN php /var/www/html/scripts/train.php
