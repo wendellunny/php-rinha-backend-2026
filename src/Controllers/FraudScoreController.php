@@ -28,7 +28,6 @@ class FraudScoreController
         $requestedAtTimeStamp = $transaction ? strtotime($transaction['requested_at']) : null;
         $minutesSinceLasTransaction = ($requestedAtTimeStamp && $lastTransactionTimeStamp) ? ($requestedAtTimeStamp - $lastTransactionTimeStamp) / 60 : null;
 
-
         $vector = new TransactionVector(
             amount: limitValue($transaction['amount'] / NORMALIZATION['max_amount']),
             installments: limitValue($transaction['installments'] / NORMALIZATION['max_installments']),

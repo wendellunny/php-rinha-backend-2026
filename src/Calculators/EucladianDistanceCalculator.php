@@ -13,6 +13,8 @@ class EucladianDistanceCalculator
             $sum += $squared;
         }
 
-        return sqrt($sum);
+        // return sqrt($sum);
+
+        return $sum;
     }
 }
