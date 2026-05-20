@@ -43,47 +43,61 @@ class FraudScoreController
 
         $vector = $vector->getVector();
 
-        $centroids = json_decode(file_get_contents(__DIR__ . '/../../resources/centroids.json'), true);
+        $centroids = require __DIR__ . '/../../resources/centroids.php';
         
         $fiveShortestDistances = [];
         $eucladianDistances = [];
+        $clusterId = null;
+        $minDistance = PHP_FLOAT_MAX;
         foreach ($centroids as $key => $centroid) {
-            $eucladianDistances[$key] = $this->eucladianDistanceCalculator->calculate($vector, $centroid);
-        }
+            $eucladianDistance = $this->eucladianDistanceCalculator->calculate($vector, $centroid);
 
-        asort($eucladianDistances);
-        $minCentroidDistance = array_slice($eucladianDistances, 0, 1, true);
-
-        $clusterId = array_keys($minCentroidDistance)[0];
-        $clusterFile = __DIR__ . '/../../resources/buckets/' . $clusterId . '.ndjson';
-
-        $items = [];
-        $handle = fopen($clusterFile, 'r');
-        if ($handle) {
-            $key = 0;
-            while (($line = fgets($handle)) !== false) {
-                $item = json_decode($line, true);
-                $eucladianDistances[$key] = $this->eucladianDistanceCalculator->calculate($vector, $item['vector']);
-                $items[$key] = $item;
-                $key++;
+            if ($eucladianDistance < $minDistance) {
+                $minDistance = $eucladianDistance;
+                $clusterId = $key;
             }
-            fclose($handle);
-        } else {
         }
+        unset($centroids);
 
-        asort($eucladianDistances);
+        $cluster = require __DIR__ . '/../../resources/buckets/' . $clusterId . '.php';
+        
+        $fiveShortestDistances = [];
 
-        $fiveShortestDistances = array_slice($eucladianDistances, 0, 5, true);
+        foreach ($cluster as $item) {
+                if (!isset($item['vector'])) {
+                    continue;
+                }
 
-        $newFiveShortestDistances = [];
-        foreach ($fiveShortestDistances as $key => $distance) {
-            $newFiveShortestDistances[$key] = [
-                'distance' => $distance,
-                'item' => $items[$key]
-            ];
+                $distance = $this->eucladianDistanceCalculator->calculate($vector, $item['vector']);
+
+                if (count($fiveShortestDistances) < 5) {
+                    $fiveShortestDistances[] = [
+                        'distance' => $distance,
+                        'item' => $item,
+                    ];
+
+                    continue;
+                }
+
+                $worstIndex = 0;
+                $worstDistance = $fiveShortestDistances[0]['distance'];
+
+                for ($i = 1; $i < 5; $i++) {
+                    if ($fiveShortestDistances[$i]['distance'] > $worstDistance) {
+                        $worstDistance = $fiveShortestDistances[$i]['distance'];
+                        $worstIndex = $i;
+                    }
+                }
+
+                if ($distance < $worstDistance) {
+                    $fiveShortestDistances[$worstIndex] = [
+                        'distance' => $distance,
+                        'item' => $item,
+                    ];
+                }
         }
-
-        $fiveShortestDistances = $newFiveShortestDistances;
+        unset($cluster);
+        unset($item);
 
         $fraudCount = 0;
         foreach ($fiveShortestDistances as $distanceInfo) {
@@ -95,6 +109,6 @@ class FraudScoreController
         $score = $fraudCount / 5;
         $approved = $score < FRAUD_THRESHOLD;
 
-        echo json_encode(['approved' => $approved, 'fraud_score' => $score]);
+        echo '{"approved": ' . ($approved ? 'true' : 'false') . ', "fraud_score": ' . $score . '}';
     }
 }

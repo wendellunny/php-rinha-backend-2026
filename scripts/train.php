@@ -8,10 +8,10 @@ require __DIR__ . '/../vendor/autoload.php';
 ini_set('memory_limit', '150M');
 
 const VECTOR_DIMENSIONS = 14;
-const CLUSTER_QTY = 256;
+const CLUSTER_QTY = 1024;
+const MAX_OPEN_BUCKET_FILES = 256;
 const ITERATIONS = 1;
 const BATCH_SIZE = false;
-const WRITE_BUCKETS_BUFFER_SIZE = 1000;
 
 function referenceIterator(string $file): iterable
 {
@@ -120,21 +120,23 @@ function trainCentroidsFromFile(string $referencesPath, int $qty, int $iteration
 
 function saveCentroids(string $path, array $centroids): void
 {
-    file_put_contents($path, json_encode($centroids, JSON_UNESCAPED_SLASHES));
+    $content = "<?php\n\nreturn " . var_export($centroids, true) . ";\n";
+    file_put_contents($path, $content);
 }
 
 function loadControids(string $path): array
 {
-    return json_decode(file_get_contents($path), true);
+    /** @var array $centroids */
+    $centroids = require $path;
+    return $centroids;
 }
 
 function clearBucketsDirectory(string $bucketsPath): void
 {
-    foreach (glob($bucketsPath . '/*.ndjson') as $file) {
+    foreach (glob($bucketsPath . '/*.php') as $file) {
         unlink($file);
     }
 }
-
 
 function buildBucketsFromFile(
     string $referencesPath,
@@ -142,44 +144,76 @@ function buildBucketsFromFile(
     string $bucketsPath,
     string $bucketsIndexPath
 ): void {
-
     clearBucketsDirectory($bucketsPath);
 
     $qty = count($centroids);
+    $counts = array_fill(0, $qty, 0);
+    $bucketInitialized = array_fill(0, $qty, false);
+    $bucketHasItems = array_fill(0, $qty, false);
 
     $handles = [];
-    $counts = array_fill(0, $qty, 0);
+    $openOrder = [];
 
-    for ($i = 0; $i < $qty; $i++) {
-        $bucketFile = $bucketsPath . '/' . $i . '.ndjson';
-        $handles[$i] = fopen($bucketFile, 'wb');
-    }
+    $acquireHandle = function (int $bucket) use (&$handles, &$openOrder, &$bucketInitialized, $bucketsPath) {
+        if (isset($handles[$bucket])) {
+            $pos = array_search($bucket, $openOrder, true);
+            if ($pos !== false) {
+                unset($openOrder[$pos]);
+                $openOrder = array_values($openOrder);
+            }
+            $openOrder[] = $bucket;
+            return $handles[$bucket];
+        }
+
+        if (count($handles) >= MAX_OPEN_BUCKET_FILES) {
+            $oldestBucket = array_shift($openOrder);
+            if ($oldestBucket !== null && isset($handles[$oldestBucket])) {
+                fclose($handles[$oldestBucket]);
+                unset($handles[$oldestBucket]);
+            }
+        }
+
+        $bucketFile = $bucketsPath . '/' . $bucket . '.php';
+
+        if (!$bucketInitialized[$bucket]) {
+            file_put_contents($bucketFile, "<?php\n\nreturn [\n");
+            $bucketInitialized[$bucket] = true;
+        }
+
+        $handle = fopen($bucketFile, 'ab');
+        if ($handle === false) {
+            throw new RuntimeException("Falha ao abrir bucket {$bucketFile}");
+        }
+
+        $handles[$bucket] = $handle;
+        $openOrder[] = $bucket;
+
+        return $handle;
+    };
 
     $total = 0;
 
-    $buffers = [];
-    foreach(referenceIterator($referencesPath) as $key =>$reference) {
+    foreach (referenceIterator($referencesPath) as $key => $reference) {
         if (BATCH_SIZE && $key >= BATCH_SIZE) {
             break;
         }
+
         $vector = $reference['vector'];
         $nearest = findNearestCentroid($vector, $centroids);
 
-        $line = json_encode([
+        $entry = [
             'vector' => $reference['vector'],
             'label' => $reference['label'],
-        ], JSON_UNESCAPED_SLASHES);
+        ];
 
-        if (!isset($buffers[$nearest])) {
-            $buffers[$nearest] = [];
+        $handle = $acquireHandle($nearest);
+
+        if ($bucketHasItems[$nearest]) {
+            fwrite($handle, ",\n");
         }
 
-        $buffers[$nearest][] = $line;
-
-        if (count($buffers[$nearest]) >= WRITE_BUCKETS_BUFFER_SIZE) {
-            fwrite($handles[$nearest], implode(PHP_EOL, $buffers[$nearest]) . PHP_EOL);
-            $buffers[$nearest] = [];
-        }
+        fwrite($handle, '    ' . var_export($entry, true));
+        $bucketHasItems[$nearest] = true;
 
         $counts[$nearest]++;
         $total++;
@@ -189,54 +223,45 @@ function buildBucketsFromFile(
         }
     }
 
-    foreach ($buffers as $nearest => $buffer) {
-        if (count($buffer) > 0) {
-            fwrite($handles[$nearest], implode(PHP_EOL, $buffer) . PHP_EOL);
-        }
-    } 
+    for ($bucket = 0; $bucket < $qty; $bucket++) {
+        $bucketFile = $bucketsPath . '/' . $bucket . '.php';
 
-    foreach ($handles as $handle) {
-        fclose($handle);
+        if (!$bucketInitialized[$bucket]) {
+            file_put_contents($bucketFile, "<?php\n\nreturn [];\n");
+            continue;
+        }
+
+        if (isset($handles[$bucket])) {
+            fwrite($handles[$bucket], "\n];\n");
+            fclose($handles[$bucket]);
+            continue;
+        }
+
+        file_put_contents($bucketFile, "\n];\n", FILE_APPEND);
     }
 
     file_put_contents(
         $bucketsIndexPath,
-        json_encode([
+        "<?php\n\nreturn " . var_export([
             'total' => $total,
             'clusters' => $qty,
             'counts' => $counts,
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
-    ));
+        ], true) . ";\n"
+    );
 
     echo 'Total de referências processadas: ' . $total . PHP_EOL;
 }
 
 
-// function buildBuckets(array $references, array $centroids): array
-// {
-//     $buckets = [];
-
-//     foreach ($centroids as $index => $_ ){
-//         $buckets[$index] = [];
-//     }
-
-//     foreach ($references as $reference) {
-//         $vector = $reference['vector'];
-//         $nearest = findNearestCentroid($vector, $centroids);
-//         $buckets[$nearest][] = $reference;
-//     }
-
-//     return $buckets;
-// }
 $time_start = microtime(true);
 
 echo "Treinando centróides..." . PHP_EOL;
 
 $centroids = trainCentroidsFromFile(__DIR__ . '/../resources/references.json', CLUSTER_QTY, ITERATIONS);
 
-saveCentroids(__DIR__ . '/../resources/centroids.json', $centroids);
+saveCentroids(__DIR__ . '/../resources/centroids.php', $centroids);
 
-echo "Centroids salvos em " . __DIR__ . '/../resources/centroids.json' . PHP_EOL;
+echo "Centroids salvos em " . __DIR__ . '/../resources/centroids.php' . PHP_EOL;
 
 echo "Construindo buckets..." . PHP_EOL;
 
@@ -244,11 +269,11 @@ buildBucketsFromFile(
     __DIR__ . '/../resources/references.json',
     $centroids,
     __DIR__ . '/../resources/buckets',
-    __DIR__ . '/../resources/buckets_index.json'
+    __DIR__ . '/../resources/buckets_index.php'
 );
 
 echo "Buckets construídos e salvos em " . __DIR__ . '/../resources/buckets' . PHP_EOL;
-echo "Índice dos buckets salvo em " . __DIR__ . '/../resources/buckets_index.json' . PHP_EOL;
+echo "Índice dos buckets salvo em " . __DIR__ . '/../resources/buckets_index.php' . PHP_EOL;
 echo "Processo concluído!" . PHP_EOL;
 
 $time_end = microtime(true);
