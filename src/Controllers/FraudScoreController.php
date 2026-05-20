@@ -20,16 +20,21 @@ class FraudScoreController
         $merchant = $request['merchant'] ?? null;
         $terminal = $request['terminal'] ?? null;
         $lastTransaction = $request['last_transaction'] ?? null;
-        $lastTransactionTimestamp = $lastTransaction ? new DateTime($lastTransaction['timestamp']) : null;
-        $requestedAt = new DateTime($transaction['requested_at'] ?? null);
-        $minutesSinceLasTransaction = $lastTransactionTimestamp ? ($requestedAt->getTimestamp() - $lastTransactionTimestamp->getTimestamp()) / 60 : null;
+
+        $requestAtHourOfDay = date('H', strtotime($transaction['requested_at'] ?? null));
+        $requestAtDayOfWeek = date('N', strtotime($transaction['requested_at'] ?? null));
+
+        $lastTransactionTimeStamp = $lastTransaction ? strtotime($lastTransaction['timestamp']) : null;
+        $requestedAtTimeStamp = $transaction ? strtotime($transaction['requested_at']) : null;
+        $minutesSinceLasTransaction = ($requestedAtTimeStamp && $lastTransactionTimeStamp) ? ($requestedAtTimeStamp - $lastTransactionTimeStamp) / 60 : null;
+
 
         $vector = new TransactionVector(
             amount: limitValue($transaction['amount'] / NORMALIZATION['max_amount']),
             installments: limitValue($transaction['installments'] / NORMALIZATION['max_installments']),
             amount_vs_avg: limitValue(($transaction['amount'] / ($merchant['avg_amount']) / NORMALIZATION['amount_vs_avg_ratio'])),
-            hour_of_day:  $requestedAt->format('H') / 23,
-            day_of_week: $requestedAt->format('N') / 6,
+            hour_of_day:  $requestAtHourOfDay / 23,
+            day_of_week: $requestAtDayOfWeek / 6,
             minutes_since_last_tx: $lastTransaction ? limitValue($minutesSinceLasTransaction / NORMALIZATION['max_minutes']) : -1,
             km_from_last_tx: $lastTransaction ? limitValue($lastTransaction['km_from_current'] / NORMALIZATION['max_km']) : -1,
             km_from_home: limitValue($terminal['km_from_home'] / NORMALIZATION['max_km']),
