@@ -1,7 +1,7 @@
 services:
   instance1: &instance
     container_name: php_instance1
-    image: wendellunny/php-rinha-backend-2026:1.1
+    image: wendellunny/php-rinha-backend-2026:1.1.1
     volumes:
       - ./php/opcache-swoole.ini:/usr/local/etc/php/conf.d/opcache-swoole.ini:ro
     deploy:
