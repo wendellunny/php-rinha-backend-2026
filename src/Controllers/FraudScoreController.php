@@ -63,20 +63,32 @@ class FraudScoreController
 
         $secondaryCentroids = require __DIR__ . '/../../resources/bucket_centroids/' . $primaryClusterId . '.php';
         
-        $secondaryClusterId = null;
-        $secondaryMinDistance = PHP_FLOAT_MAX;
+        $secondaryClusterId1 = null;
+        $secondaryClusterId2 = null;
+        $secondaryMinDistance1 = PHP_FLOAT_MAX;
+        $secondaryMinDistance2 = PHP_FLOAT_MAX;
         for ($i = 0; $i < SECONDARY_CLUSTERS; $i++) {
             $centroid = $secondaryCentroids[$i];
-            $euclidianDistance = $this->calculateEucladianDistanceWithLimit($vector, $centroid, $secondaryMinDistance);
+            $euclidianDistance = $this->calculateEucladianDistanceWithLimit($vector, $centroid, $secondaryMinDistance2);
 
-            if ($euclidianDistance < $secondaryMinDistance) {
-                $secondaryMinDistance = $euclidianDistance;
-                $secondaryClusterId = $i;
+            if ($euclidianDistance < $secondaryMinDistance1) {
+                $secondaryMinDistance2 = $secondaryMinDistance1;
+                $secondaryClusterId2 = $secondaryClusterId1;
+                $secondaryMinDistance1 = $euclidianDistance;
+                $secondaryClusterId1 = $i;
+            } elseif ($euclidianDistance < $secondaryMinDistance2) {
+                $secondaryMinDistance2 = $euclidianDistance;
+                $secondaryClusterId2 = $i;
             }
         }
         unset($secondaryCentroids);
 
-        $cluster = require __DIR__ . '/../../resources/buckets/' . $primaryClusterId . '/' . $secondaryClusterId . '.php';
+        $cluster = array_merge(
+            require __DIR__ . '/../../resources/buckets/' . $primaryClusterId . '/' . $secondaryClusterId1 . '.php',
+            $secondaryClusterId2 !== null
+                ? require __DIR__ . '/../../resources/buckets/' . $primaryClusterId . '/' . $secondaryClusterId2 . '.php'
+                : []
+        );
         
         $fiveShortestDistances = [];
         $fiveShortestDistancesQty = 0;
