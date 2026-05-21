@@ -1,14 +1,14 @@
 services:
   instance1: &instance
     container_name: php_instance1
-    image: wendellunny/php-rinha-backend-2026:1.0
+    image: wendellunny/php-rinha-backend-2026:1.1
     volumes:
-      - ./php-ini/opcache.ini:/usr/local/etc/php/conf.d/opcache.ini:ro
+      - ./php/opcache-swoole.ini:/usr/local/etc/php/conf.d/opcache-swoole.ini:ro
     deploy:
       resources:
         limits:
-          cpus: '0.48'
-          memory: 165M
+          cpus: '0.35'
+          memory: 150M
 
   instance2:
     <<: *instance
@@ -27,5 +27,5 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.04'
-          memory: 20M
+          cpus: '0.3'
+          memory: 50M
