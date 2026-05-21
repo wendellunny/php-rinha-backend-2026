@@ -4,16 +4,19 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    environment:
+      - SWOLE_WORKERS=2
     volumes:
-      - ./public:/var/www/html/public
+      - ./server.php:/var/www/html/server.php:ro
+      - ./config:/var/www/html/config:ro
       - ./src:/var/www/html/src
       - ./vendor:/var/www/html/vendor
-      - ./php/fpm.conf:/usr/local/etc/php-fpm.d/zz-custom.conf:ro
+      - ./php/opcache-swoole.ini:/usr/local/etc/php/conf.d/opcache-swoole.ini:ro
       
     deploy:
       resources:
         limits:
-          cpus: '0.4'
+          cpus: '0.35'
           memory: 150M
 
   instance2:
@@ -21,14 +24,18 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    environment:
+      - SWOLE_WORKERS=2
     volumes:
-      - ./public:/var/www/html/public
+      - ./server.php:/var/www/html/server.php:ro
+      - ./config:/var/www/html/config:ro
       - ./src:/var/www/html/src
       - ./vendor:/var/www/html/vendor
+      - ./php/opcache-swoole.ini:/usr/local/etc/php/conf.d/opcache-swoole.ini:ro
     deploy:
       resources:
         limits:
-          cpus: '0.4'
+          cpus: '0.35'
           memory: 150M
     
 
@@ -45,7 +52,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.2'
+          cpus: '0.3'
           memory: 50M
     ulimits:
       nofile:

@@ -5,19 +5,19 @@ namespace App\Controllers;
 use App\Calculators\EucladianDistanceCalculator;
 use App\Data\TransactionVector;
 use DateTime;
+use Swoole\Http\Request;
+use Swoole\Http\Response;
 
 class FraudScoreController
 {
 
-    public function handle(array $request): void
+    public function handle(array $data): string
     {
-        header('Content-Type: application/json');    
-
-        $transaction = $request['transaction'] ?? null;
-        $customer = $request['customer'] ?? null;
-        $merchant = $request['merchant'] ?? null;
-        $terminal = $request['terminal'] ?? null;
-        $lastTransaction = $request['last_transaction'] ?? null;
+        $transaction = $data['transaction'] ?? null;
+        $customer = $data['customer'] ?? null;
+        $merchant = $data['merchant'] ?? null;
+        $terminal = $data['terminal'] ?? null;
+        $lastTransaction = $data['last_transaction'] ?? null;
 
         $requestedAtTimeStamp = $transaction ? strtotime($transaction['requested_at']) : null;
         $requestAtHourOfDay = $requestedAtTimeStamp ? date('H', $requestedAtTimeStamp) : null;
@@ -46,7 +46,7 @@ class FraudScoreController
         $vector = $vector->getVector();
 
 
-        $primaryCentroids = require __DIR__ . '/../../resources/centroids.php';
+        $primaryCentroids = $GLOBALS['primaryCentroids'];
         
         $primaryClusterId = null;
         $primaryMinDistance = PHP_FLOAT_MAX;
@@ -147,7 +147,7 @@ class FraudScoreController
         $score = $fraudCount / 5;
         $approved = $score < FRAUD_THRESHOLD;
 
-        echo '{"approved": ' . ($approved ? 'true' : 'false') . ', "fraud_score": ' . $score . '}';
+        return '{"approved": ' . ($approved ? 'true' : 'false') . ', "fraud_score": ' . $score . '}';
     }
 
 
