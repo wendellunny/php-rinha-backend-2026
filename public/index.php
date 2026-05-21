@@ -2,9 +2,7 @@
 
 require __DIR__ . '/../vendor/autoload.php';
 
-use App\Calculators\EucladianDistanceCalculator;
 use App\Controllers\FraudScoreController;
-use App\Data\TransactionVector;
 use App\Kernel\Router;
 
 const NORMALIZATION =[
@@ -31,6 +29,9 @@ const MCC_RISK = [
 ];
 
 const FRAUD_THRESHOLD = 0.6;
+const VECTOR_DIMENSIONS = 14;
+const PRIMARY_CLUSTERS = 144;
+const SECONDARY_CLUSTERS = 144;
 
 $router =  new Router(
     $_SERVER['REQUEST_METHOD'],
@@ -39,13 +40,11 @@ $router =  new Router(
     getBodyParams()
 );
 
-$eucladianDistanceCalculator = new EucladianDistanceCalculator();
-
 $router->get('/ready', function() {
     http_response_code(200);
     echo json_encode(['message' => 'ok', 'status' => 200]);
 });
 
-$router->post('/fraud-score', [new FraudScoreController($eucladianDistanceCalculator), 'handle']);
+$router->post('/fraud-score', [new FraudScoreController(), 'handle']);
 
 $router->handleRequest();

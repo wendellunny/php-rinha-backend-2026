@@ -9,8 +9,6 @@ use DateTime;
 class FraudScoreController
 {
 
-    public function __construct(private readonly EucladianDistanceCalculator $eucladianDistanceCalculator){}
-
     public function handle(array $request): void
     {
         header('Content-Type: application/json');    
@@ -21,11 +19,11 @@ class FraudScoreController
         $terminal = $request['terminal'] ?? null;
         $lastTransaction = $request['last_transaction'] ?? null;
 
-        $requestAtHourOfDay = date('H', strtotime($transaction['requested_at'] ?? null));
-        $requestAtDayOfWeek = date('N', strtotime($transaction['requested_at'] ?? null));
+        $requestedAtTimeStamp = $transaction ? strtotime($transaction['requested_at']) : null;
+        $requestAtHourOfDay = $requestedAtTimeStamp ? date('H', $requestedAtTimeStamp) : null;
+        $requestAtDayOfWeek = $requestedAtTimeStamp ? date('N', $requestedAtTimeStamp) : null;
 
         $lastTransactionTimeStamp = $lastTransaction ? strtotime($lastTransaction['timestamp']) : null;
-        $requestedAtTimeStamp = $transaction ? strtotime($transaction['requested_at']) : null;
         $minutesSinceLasTransaction = ($requestedAtTimeStamp && $lastTransactionTimeStamp) ? ($requestedAtTimeStamp - $lastTransactionTimeStamp) / 60 : null;
 
         $vector = new TransactionVector(
@@ -47,41 +45,83 @@ class FraudScoreController
 
         $vector = $vector->getVector();
 
-        $centroids = require __DIR__ . '/../../resources/centroids.php';
-        
-        $fiveShortestDistances = [];
-        $eucladianDistances = [];
-        $clusterId = null;
-        $minDistance = PHP_FLOAT_MAX;
-        foreach ($centroids as $key => $centroid) {
-            $eucladianDistance = $this->eucladianDistanceCalculator->calculate($vector, $centroid);
 
-            if ($eucladianDistance < $minDistance) {
-                $minDistance = $eucladianDistance;
-                $clusterId = $key;
+        $primaryCentroids = require __DIR__ . '/../../resources/centroids.php';
+        
+        $primaryClusterId = null;
+        $primaryMinDistance = PHP_FLOAT_MAX;
+        for ($i = 0; $i < PRIMARY_CLUSTERS; $i++) {
+            $centroid = $primaryCentroids[$i];
+            $euclidianDistance = $this->calculateEucladianDistanceWithLimit($vector, $centroid, $primaryMinDistance);
+
+            if ($euclidianDistance < $primaryMinDistance) {
+                $primaryMinDistance = $euclidianDistance;
+                $primaryClusterId = $i;
             }
         }
-        unset($centroids);
+        unset($primaryCentroids);
 
-        $cluster = require __DIR__ . '/../../resources/buckets/' . $clusterId . '.php';
+        $secondaryCentroids = require __DIR__ . '/../../resources/bucket_centroids/' . $primaryClusterId . '.php';
+        
+        $secondaryClusterId = null;
+        $secondaryMinDistance = PHP_FLOAT_MAX;
+        for ($i = 0; $i < SECONDARY_CLUSTERS; $i++) {
+            $centroid = $secondaryCentroids[$i];
+            $euclidianDistance = $this->calculateEucladianDistanceWithLimit($vector, $centroid, $secondaryMinDistance);
+
+            if ($euclidianDistance < $secondaryMinDistance) {
+                $secondaryMinDistance = $euclidianDistance;
+                $secondaryClusterId = $i;
+            }
+        }
+        unset($secondaryCentroids);
+
+        $cluster = require __DIR__ . '/../../resources/buckets/' . $primaryClusterId . '/' . $secondaryClusterId . '.php';
         
         $fiveShortestDistances = [];
+        $fiveShortestDistancesQty = 0;
+
+        $worstIndex = 0;
+        $worstDistance = PHP_FLOAT_MAX;
 
         foreach ($cluster as $item) {
-                if (!isset($item['vector'])) {
-                    continue;
+
+            if ($fiveShortestDistancesQty < 5) {
+                $distance = $this->calculateEucladianDistance($vector, $item['vector']);
+
+                $fiveShortestDistances[] = [
+                    'distance' => $distance,
+                    'item' => $item,
+                ];
+
+                $fiveShortestDistancesQty++;
+
+                if ($fiveShortestDistancesQty === 5) {
+                    $worstIndex = 0;
+                    $worstDistance = $fiveShortestDistances[0]['distance'];
+
+                    for ($i = 1; $i < 5; $i++) {
+                        if ($fiveShortestDistances[$i]['distance'] > $worstDistance) {
+                            $worstDistance = $fiveShortestDistances[$i]['distance'];
+                            $worstIndex = $i;
+                        }
+                    }
                 }
 
-                $distance = $this->eucladianDistanceCalculator->calculate($vector, $item['vector']);
+                continue;
+            }
 
-                if (count($fiveShortestDistances) < 5) {
-                    $fiveShortestDistances[] = [
-                        'distance' => $distance,
-                        'item' => $item,
-                    ];
+            $distance = $this->calculateEucladianDistanceWithLimit(
+                $vector,
+                $item['vector'],
+                $worstDistance
+            );
 
-                    continue;
-                }
+            if ($distance < $worstDistance) {
+                $fiveShortestDistances[$worstIndex] = [
+                    'distance' => $distance,
+                    'item' => $item,
+                ];
 
                 $worstIndex = 0;
                 $worstDistance = $fiveShortestDistances[0]['distance'];
@@ -92,16 +132,10 @@ class FraudScoreController
                         $worstIndex = $i;
                     }
                 }
-
-                if ($distance < $worstDistance) {
-                    $fiveShortestDistances[$worstIndex] = [
-                        'distance' => $distance,
-                        'item' => $item,
-                    ];
-                }
+            }
         }
-        unset($cluster);
-        unset($item);
+
+        unset($cluster, $item);
 
         $fraudCount = 0;
         foreach ($fiveShortestDistances as $distanceInfo) {
@@ -115,4 +149,103 @@ class FraudScoreController
 
         echo '{"approved": ' . ($approved ? 'true' : 'false') . ', "fraud_score": ' . $score . '}';
     }
+
+
+    public function calculateEucladianDistanceWithLimit(array $vector1, array $vector2, float $limit)
+    {
+        $sum = 0.0;
+
+        $dimension = $vector1[0] - $vector2[0];
+        $sum += $dimension * $dimension;
+        if ($sum > $limit) return $sum;
+
+        $dimension = $vector1[1] - $vector2[1];
+        $sum += $dimension * $dimension;
+        if ($sum > $limit) return $sum;
+
+        $dimension = $vector1[2] - $vector2[2];
+        $sum += $dimension * $dimension;
+        if ($sum > $limit) return $sum;
+
+        $dimension = $vector1[3] - $vector2[3];
+        $sum += $dimension * $dimension;
+        if ($sum > $limit) return $sum;
+
+        $dimension = $vector1[4] - $vector2[4];
+        $sum += $dimension * $dimension;
+        if ($sum > $limit) return $sum;
+
+        $dimension = $vector1[5] - $vector2[5];
+        $sum += $dimension * $dimension;
+        if ($sum > $limit) return $sum;
+
+        $dimension = $vector1[6] - $vector2[6];
+        $sum += $dimension * $dimension;
+        if ($sum > $limit) return $sum;
+
+        $dimension = $vector1[7] - $vector2[7];
+        $sum += $dimension * $dimension;
+        if ($sum > $limit) return $sum;
+
+        $dimension = $vector1[8] - $vector2[8];
+        $sum += $dimension * $dimension;
+        if ($sum > $limit) return $sum;
+
+        $dimension = $vector1[9] - $vector2[9];
+        $sum += $dimension * $dimension;
+        if ($sum > $limit) return $sum;
+
+        $dimension = $vector1[10] - $vector2[10];
+        $sum += $dimension * $dimension;
+        if ($sum > $limit) return $sum;
+
+        $dimension = $vector1[11] - $vector2[11];
+        $sum += $dimension * $dimension;
+        if ($sum > $limit) return $sum;
+
+        $dimension = $vector1[12] - $vector2[12];
+        $sum += $dimension * $dimension;
+        if ($sum > $limit) return $sum;
+
+        $dimension = $vector1[13] - $vector2[13];
+        $sum += $dimension * $dimension;
+
+        return $sum;
+    }
+
+    public function calculateEucladianDistance(array $vector1, array $vector2): float
+    {
+        $dimension1 = $vector1[0] - $vector2[0];
+        $dimension2 = $vector1[1] - $vector2[1];
+        $dimension3 = $vector1[2] - $vector2[2];
+        $dimension4 = $vector1[3] - $vector2[3];
+        $dimension5 = $vector1[4] - $vector2[4];
+        $dimension6 = $vector1[5] - $vector2[5];
+        $dimension7 = $vector1[6] - $vector2[6];
+        $dimension8 = $vector1[7] - $vector2[7];
+        $dimension9 = $vector1[8] - $vector2[8];
+        $dimension10 = $vector1[9] - $vector2[9];
+        $dimension11 = $vector1[10] - $vector2[10];
+        $dimension12 = $vector1[11] - $vector2[11];
+        $dimension13 = $vector1[12] - $vector2[12];
+        $dimension14 = $vector1[13] - $vector2[13];
+        
+        return 
+            $dimension1 * $dimension1 +
+            $dimension2 * $dimension2 +
+            $dimension3 * $dimension3 +
+            $dimension4 * $dimension4 +
+            $dimension5 * $dimension5 +
+            $dimension6 * $dimension6 +
+            $dimension7 * $dimension7 +
+            $dimension8 * $dimension8 +
+            $dimension9 * $dimension9 +
+            $dimension10 * $dimension10 +
+            $dimension11 * $dimension11 +
+            $dimension12 * $dimension12 +
+            $dimension13 * $dimension13 +
+            $dimension14 * $dimension14;
+        
+    }
+
 }

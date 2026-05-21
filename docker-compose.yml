@@ -8,6 +8,8 @@ services:
       - ./public:/var/www/html/public
       - ./src:/var/www/html/src
       - ./vendor:/var/www/html/vendor
+      - ./php/fpm.conf:/usr/local/etc/php-fpm.d/zz-custom.conf:ro
+      
     deploy:
       resources:
         limits:
@@ -45,3 +47,7 @@ services:
         limits:
           cpus: '0.2'
           memory: 50M
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
