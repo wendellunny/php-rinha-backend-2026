@@ -4,8 +4,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    environment:
-      - SWOLE_WORKERS=2
     volumes:
       - ./server.php:/var/www/html/server.php:ro
       - ./config:/var/www/html/config:ro
@@ -24,8 +22,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    environment:
-      - SWOLE_WORKERS=2
     volumes:
       - ./server.php:/var/www/html/server.php:ro
       - ./config:/var/www/html/config:ro
