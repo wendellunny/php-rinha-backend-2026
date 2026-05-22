@@ -118,31 +118,32 @@ class FraudScoreController
             );
         }
         
-        $fiveShortestDistances = [];
-        $fiveShortestDistancesQty = 0;
+        $kNeighbors = [];
+        $kNeighborsQty = 0;
+        $kSize = 5;
 
         $worstIndex = 0;
         $worstDistance = PHP_FLOAT_MAX;
 
         foreach ($cluster as $item) {
 
-            if ($fiveShortestDistancesQty < 5) {
+            if ($kNeighborsQty < $kSize) {
                 $distance = $this->calculateEucladianDistance($vector, $item['vector']);
 
-                $fiveShortestDistances[] = [
+                $kNeighbors[] = [
                     'distance' => $distance,
                     'item' => $item,
                 ];
 
-                $fiveShortestDistancesQty++;
+                $kNeighborsQty++;
 
-                if ($fiveShortestDistancesQty === 5) {
+                if ($kNeighborsQty === $kSize) {
                     $worstIndex = 0;
-                    $worstDistance = $fiveShortestDistances[0]['distance'];
+                    $worstDistance = $kNeighbors[0]['distance'];
 
-                    for ($i = 1; $i < 5; $i++) {
-                        if ($fiveShortestDistances[$i]['distance'] > $worstDistance) {
-                            $worstDistance = $fiveShortestDistances[$i]['distance'];
+                    for ($i = 1; $i < $kSize; $i++) {
+                        if ($kNeighbors[$i]['distance'] > $worstDistance) {
+                            $worstDistance = $kNeighbors[$i]['distance'];
                             $worstIndex = $i;
                         }
                     }
@@ -158,17 +159,17 @@ class FraudScoreController
             );
 
             if ($distance < $worstDistance) {
-                $fiveShortestDistances[$worstIndex] = [
+                $kNeighbors[$worstIndex] = [
                     'distance' => $distance,
                     'item' => $item,
                 ];
 
                 $worstIndex = 0;
-                $worstDistance = $fiveShortestDistances[0]['distance'];
+                $worstDistance = $kNeighbors[0]['distance'];
 
-                for ($i = 1; $i < 5; $i++) {
-                    if ($fiveShortestDistances[$i]['distance'] > $worstDistance) {
-                        $worstDistance = $fiveShortestDistances[$i]['distance'];
+                for ($i = 1; $i < $kSize; $i++) {
+                    if ($kNeighbors[$i]['distance'] > $worstDistance) {
+                        $worstDistance = $kNeighbors[$i]['distance'];
                         $worstIndex = $i;
                     }
                 }
@@ -177,14 +178,18 @@ class FraudScoreController
 
         unset($cluster, $item);
 
-        $fraudCount = 0;
-        foreach ($fiveShortestDistances as $distanceInfo) {
-            if ($distanceInfo['item']['label'] === 'fraud') {
-                $fraudCount++;
+        
+        $fraudWeight = 0.0;
+        $totalWeight = 0.0;
+        foreach ($kNeighbors as $neighbor) {
+            $weight = 1.0 / ($neighbor['distance'] + 1e-9);
+            $totalWeight += $weight;
+            if ($neighbor['item']['label'] === 'fraud') {
+                $fraudWeight += $weight;
             }
         }
 
-        $score = $fraudCount / 5;
+        $score = $totalWeight > 0 ? $fraudWeight / $totalWeight : 0.0;
         $approved = $score < FRAUD_THRESHOLD;
 
         return '{"approved": ' . ($approved ? 'true' : 'false') . ', "fraud_score": ' . $score . '}';
