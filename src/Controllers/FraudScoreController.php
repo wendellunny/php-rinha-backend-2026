@@ -48,47 +48,75 @@ class FraudScoreController
 
         $primaryCentroids = $GLOBALS['primaryCentroids'];
         
-        $primaryClusterId = null;
-        $primaryMinDistance = PHP_FLOAT_MAX;
+        $primaryClusterId1 = null;
+        $primaryClusterId2 = null;
+        $primaryMinDistance1 = PHP_FLOAT_MAX;
+        $primaryMinDistance2 = PHP_FLOAT_MAX;
         for ($i = 0; $i < PRIMARY_CLUSTERS; $i++) {
             $centroid = $primaryCentroids[$i];
-            $euclidianDistance = $this->calculateEucladianDistanceWithLimit($vector, $centroid, $primaryMinDistance);
+            $euclidianDistance = $this->calculateEucladianDistanceWithLimit($vector, $centroid, $primaryMinDistance2);
 
-            if ($euclidianDistance < $primaryMinDistance) {
-                $primaryMinDistance = $euclidianDistance;
-                $primaryClusterId = $i;
+            if ($euclidianDistance < $primaryMinDistance1) {
+                $primaryMinDistance2 = $primaryMinDistance1;
+                $primaryClusterId2 = $primaryClusterId1;
+                $primaryMinDistance1 = $euclidianDistance;
+                $primaryClusterId1 = $i;
+            } elseif ($euclidianDistance < $primaryMinDistance2) {
+                $primaryMinDistance2 = $euclidianDistance;
+                $primaryClusterId2 = $i;
             }
         }
         unset($primaryCentroids);
 
-        $secondaryCentroids = require __DIR__ . '/../../resources/bucket_centroids/' . $primaryClusterId . '.php';
-        
-        $secondaryClusterId1 = null;
-        $secondaryClusterId2 = null;
-        $secondaryMinDistance1 = PHP_FLOAT_MAX;
-        $secondaryMinDistance2 = PHP_FLOAT_MAX;
+        $combinedSecondaryCentroids = [];
+        $secondaryCentroids = require __DIR__ . '/../../resources/bucket_centroids/' . $primaryClusterId1 . '.php';
         for ($i = 0; $i < SECONDARY_CLUSTERS; $i++) {
-            $centroid = $secondaryCentroids[$i];
-            $euclidianDistance = $this->calculateEucladianDistanceWithLimit($vector, $centroid, $secondaryMinDistance2);
+            $combinedSecondaryCentroids[] = [
+                'primaryClusterId' => $primaryClusterId1,
+                'secondaryClusterId' => $i,
+                'centroid' => $secondaryCentroids[$i],
+            ];
+        }
 
-            if ($euclidianDistance < $secondaryMinDistance1) {
-                $secondaryMinDistance2 = $secondaryMinDistance1;
-                $secondaryClusterId2 = $secondaryClusterId1;
-                $secondaryMinDistance1 = $euclidianDistance;
-                $secondaryClusterId1 = $i;
-            } elseif ($euclidianDistance < $secondaryMinDistance2) {
-                $secondaryMinDistance2 = $euclidianDistance;
-                $secondaryClusterId2 = $i;
+        if ($primaryClusterId2 !== null) {
+            $secondaryCentroids = require __DIR__ . '/../../resources/bucket_centroids/' . $primaryClusterId2 . '.php';
+            for ($i = 0; $i < SECONDARY_CLUSTERS; $i++) {
+                $combinedSecondaryCentroids[] = [
+                    'primaryClusterId' => $primaryClusterId2,
+                    'secondaryClusterId' => $i,
+                    'centroid' => $secondaryCentroids[$i],
+                ];
             }
         }
         unset($secondaryCentroids);
 
-        $cluster = array_merge(
-            require __DIR__ . '/../../resources/buckets/' . $primaryClusterId . '/' . $secondaryClusterId1 . '.php',
-            $secondaryClusterId2 !== null
-                ? require __DIR__ . '/../../resources/buckets/' . $primaryClusterId . '/' . $secondaryClusterId2 . '.php'
-                : []
-        );
+        $secondaryCluster1 = null;
+        $secondaryCluster2 = null;
+        $secondaryMinDistance1 = PHP_FLOAT_MAX;
+        $secondaryMinDistance2 = PHP_FLOAT_MAX;
+        foreach ($combinedSecondaryCentroids as $secondaryCentroidInfo) {
+            $centroid = $secondaryCentroidInfo['centroid'];
+            $euclidianDistance = $this->calculateEucladianDistanceWithLimit($vector, $centroid, $secondaryMinDistance2);
+
+            if ($euclidianDistance < $secondaryMinDistance1) {
+                $secondaryMinDistance2 = $secondaryMinDistance1;
+                $secondaryCluster2 = $secondaryCluster1;
+                $secondaryMinDistance1 = $euclidianDistance;
+                $secondaryCluster1 = $secondaryCentroidInfo;
+            } elseif ($euclidianDistance < $secondaryMinDistance2) {
+                $secondaryMinDistance2 = $euclidianDistance;
+                $secondaryCluster2 = $secondaryCentroidInfo;
+            }
+        }
+        unset($combinedSecondaryCentroids);
+
+        $cluster = require __DIR__ . '/../../resources/buckets/' . $secondaryCluster1['primaryClusterId'] . '/' . $secondaryCluster1['secondaryClusterId'] . '.php';
+        if ($secondaryCluster2 !== null) {
+            $cluster = array_merge(
+                $cluster,
+                require __DIR__ . '/../../resources/buckets/' . $secondaryCluster2['primaryClusterId'] . '/' . $secondaryCluster2['secondaryClusterId'] . '.php'
+            );
+        }
         
         $fiveShortestDistances = [];
         $fiveShortestDistancesQty = 0;
